@@ -1,0 +1,20 @@
+#!/bin/bash
+my_dir=$(cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd)
+
+input=$( readlink -f "$1" )
+
+if [ ! -e "$input" ]
+then
+	echo "[!] The provided input (pcap) file doesn't exist"
+	exit
+fi
+
+tshark	-r "$input" -T fields \
+	-e frame.number \
+	-e udp.srcport \
+	-e udp.dstport \
+	-e tcp.srcport \
+	-e tcp.dstport \
+	-e _ws.col.Protocol \
+	-e tcp.stream \
+	-E separator=";" -V

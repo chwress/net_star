@@ -1,0 +1,6 @@
+/bin/net_conv.sh
+/bin/net_extract.sh
+/bin/net_filter.sh
+/bin/net_reassemble.sh
+/res/data/*
+!/res/data/.gitkeep

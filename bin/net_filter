@@ -1,0 +1,85 @@
+#!/bin/bash
+my_dir=$(cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd)
+
+case "$1" in
+stats)
+	source "$my_dir/env.sh"
+	"$my_dir/../src/net_filter.py" ${@:2}
+	exit "$?"
+	;;
+packets)
+	;;
+*)
+	# we are basically faking argparse output ;)
+	echo "usage: net_filter [-h] {stats,packets} ..."
+	echo "net_filter: error: argument cmd: invalid choice: '$1' (choose from 'stats', 'packets')"
+	exit 2
+	;;
+"")
+	echo "usage: net_filter {stats,packets} ..."
+	echo "net_filter: error: the following arguments are required: cmd"
+	exit 2
+	;;
+esac
+
+
+# Here we are going to filter the pcaps on packet level
+my_env="$my_dir/env.sh"
+source "$my_env"
+
+bin="$( readlink -f "$my_dir/" )"
+src="$( readlink -f "$my_dir/../src" )"
+
+function stats()   { "$bin/net_stats" "$@"; }
+function filter()  { python "$src/net_filter.py" "$@"; }
+function extract() { python "$src/net_extract.py" "$@"; }
+
+function print_help()
+{
+	echo "usage: net_filter packets PCAP_FILENAME REGEXP_FILTER [--incl | --excl]"
+	echo "net_filter packets: error: $1"
+	return
+}
+
+if [ -z "$2" ] || [ -z "$3" ]
+then
+	print_help "the following arguments are required: PCAP_FILENAME, REGEXP_FILTER"
+	exit 2
+fi
+
+if [ ! -e "$2" ]
+then
+	print_help "the file '$2' does not exist! Abort."
+fi
+
+input=$( readlink -f "$2" )
+filter="$3"
+
+if [ -d "$input" ]
+then
+	print_help "'$input' is a directory, but needs to be a file! Abort."
+	exit
+fi
+
+out="out-incl:$filter"
+for arg in "${@:4}"
+do
+	if [ "$arg" = "--excl" ]
+	then
+		out="out-excl:$filter"
+	fi
+done
+
+out="$( dirname "$input" )/$out/$( basename "$input" )"
+rm -R "$out" > /dev/null 2>&1
+mkdir -p $( dirname "$out" ) > /dev/null 2>&1
+
+
+if [ ! -e "$input.stats" ]
+then
+	stats "$input" > "$input.stats"
+fi
+
+filter "$input.stats" "$filter" --strict ${@:4} --out "$out.stats"
+extract packets "$input" "$out.stats" --out "$out"
+stats "$out" > "$out.stats"

@@ -1,0 +1,172 @@
+#!/bin/bash
+my_dir=$(cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd)
+
+bin="$( readlink -f "$my_dir/../bin" )"
+src="$( readlink -f "$my_dir/../src" )"
+
+my_env="$my_dir/env.sh"
+source "$my_env"
+
+function stats()   { "$bin/net_stats" "$@"; }
+function conv()    { python "$src/net_conv.py" "$@"; }
+function filter()  { python "$src/net_filter.py" "$@"; }
+function extract() { python "$src/net_extract.py" "$@"; }
+
+
+function print_help()
+{
+	# we are faking argparse output ;)
+	echo "usage: net_reassemble PCAP_FILENAME [ REGEXP_FILTER ]"
+	echo "net_reassemble packets: error: $1"
+	return
+}
+
+if [ -z "$1" ]
+then
+	print_help "the following arguments are required: PCAP_FILENAME"
+	exit
+fi
+
+if [ ! -e "$1" ]
+then
+	print_help "the file '$1' does not exist! Abort."
+	exit
+fi
+
+input=$( readlink -f "$1" )
+
+if [ -d "$input" ]
+then
+	print_help "'$input' is a directory, but needs to be a file! Abort."
+	exit
+fi
+
+filter="$2"
+
+if [ -z "$filter" ]
+then
+	out="out"
+else
+	out="out-incl:$filter"
+fi
+
+out="$( dirname "$input" )/$out/$( basename "$input" )"
+
+
+strict="--strict"
+combine=false
+parallelize=false
+
+for arg in "${@:3}"
+do
+	case "$arg" in
+	not-strict)
+		strict=""
+		;;
+
+	combine)
+		combine=true
+		;;
+
+	parallelize)
+		parallel --version > /dev/null 2>&1
+		if [ "$?" -ne 0 ]
+		then
+			echo "[W] GNU Parallel is not installed :("
+			echo "[W] Let resume without parallelizing things"
+		else
+			parallelize=true
+		fi
+		;;
+	esac
+done
+
+
+function extract_streams()
+{
+	local input="$1"
+	local out="$2"
+
+	rm -R "$out" > /dev/null 2>&1
+	mkdir -p "$out"
+	
+	if [ ! -e "$input.stats" ]
+	then
+		stats "$input" > "$input.stats"
+	fi
+	
+	echo filter "$input.stats" "$filter" $strict --out "$out.stats"
+	filter "$input.stats" "$filter" $strict --out "$out.stats"
+
+	# make sure "$FILTER" streams ... is able to maintain enough open files
+	num_streams=$( cat "$out.stats" | rev | cut -d';' -f1 | rev | sort | uniq | wc -l )
+	ulimit -n $( bc <<< "$( ulimit -n ) + $num_streams" )
+	
+	extract streams "$input" "$out.stats" --out-prefix "$out/"
+}
+
+
+function reassemble_pcap()
+{
+	# In order to parallize this with GNU parallel, we need to have
+	# a have a valid python environment in here as well. Alternatively,
+	# we could use the wrappers in `bin/`
+	source "$my_env"
+	
+	local x="$1"
+	local combine="$2"
+
+	local stream_ids=( `stats "$x" | rev | cut -d";" -f1 | rev | sort | uniq | grep -v "^$"` )
+
+	if [ "${#stream_ids[@]}" -ne 1 ]
+	then
+		echo "[!] There is something wrong with file"
+		echo "[!] '$x'"
+		echo "[!] It contains ${#stream_ids[@]} streams instead of one"
+	else
+		local streamlog="$x.tshark"
+		tshark -r "$x" -q -z follow,tcp,raw,0 > "$streamlog"
+
+		local streamdata="${x%%.pcap}"
+		if [ "$combine" = true ];
+		then
+			conv "$streamlog" --skip-missingbytes \
+				--both "$streamdata.tar.gz"
+		else
+			conv "$streamlog" --skip-missingbytes \
+				--recv "$streamdata-in.tar.gz"  \
+				--send "$streamdata-out.tar.gz"
+		fi
+
+		rm "$streamlog"
+	fi
+}
+
+echo "[*] Extract TCP streams..."
+extract_streams "$input" "$out"
+
+
+echo "[*] Reassemble and split into 'messages'..."
+if [ "$parallelize" = true ]
+then
+
+	export -f reassemble_pcap
+
+	export my_env
+	export bin
+	export src
+	export -f stats
+	export -f conv
+
+	parallel --bar reassemble_pcap {1} "$combine" :::: <( find "$out/" -name "*.pcap" -type f | sort )
+
+else
+
+	for x in $( find "$out/" -name "*.pcap" -type f | sort )
+	do
+		reassemble_pcap "$x"
+	done
+
+fi
+
+echo "[*] Done!"
