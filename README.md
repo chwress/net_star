@@ -3,13 +3,13 @@
 
 Copyright (C) 2017-2020 Christian Wressnegger ([@chwress](https://twitter.com/chwress))
 
-There are plenty of tools for processing network traffic and PCAP files out there with [Wireshark](https://www.wireshark.org) and [tshark](https://www.wireshark.org/docs/man-pages/tshark.html) leading the way. I am not pretending to do anything better than these and as a matter of fact, `net_*` merely is a set of wrappers around tshark plus a little extra pre/post processing.
+There are plenty of tools for processing network traffic and PCAP files out there with [Wireshark](https://www.wireshark.org) and [tshark](https://www.wireshark.org/docs/man-pages/tshark.html) leading the way. I am not pretending to do anything better than these and as a matter of fact, `net_*` merely is a set of wrappers around tshark plus a little extra pre/post-processing.
 
-So why is this necessary? For me it was the need to (efficiently) reassemble TCP streams. There are (again) plenty of other tools doing exactly this ([tcpflow](https://github.com/simsong/tcpflow), [PcapPlusPlus](https://github.com/seladb/PcapPlusPlus/tree/master/Examples/TcpReassembly), or even using [Scapy](https://github.com/deeso/scapy-tcp-extractor)). All of them are doing a reasonably good job, but reassembly is hard. Also Wireshark and tshark let you reassemble TCP streams, of course, but oddly only one at a time. This sucks!
+So why is this necessary? For me, it was the need to (efficiently) reassemble TCP streams. There are (again) plenty of other tools doing exactly this ([tcpflow](https://github.com/simsong/tcpflow), [PcapPlusPlus](https://github.com/seladb/PcapPlusPlus/tree/master/Examples/TcpReassembly), or even using [Scapy](https://github.com/deeso/scapy-tcp-extractor)). All of them are doing a reasonably good job, but reassembly is hard. Also, Wireshark and tshark let you reassemble TCP streams, of course, but oddly only one at a time. This sucks!
 
 #### `net_*` to the rescue!
 
-Considering Wireshark and tshark as the gold standard for everything that is related to the analysis of network traffic, `net_*` provides wrappers around these tools to enable TCP reassembly of all TCP streams in a PCAP file **without** re-reading the entire file over and over again. The idea is simple. Tshark allows you to determine session IDs for each packet/frame in captured network traffic (`net_stats`). With this information, we can easily write packets to individual, stream-specific files depending on their session ID (`net_extract streams`). Moreover, it might make sense to also filter the packets with sessions in mind (`net_filter`). The actual reassembly is then done by tshark based on these individual, much smaller PCAP files that contain exactly one TCP stream each -- the output is somewhat odd, though, such that we have to convert these conversations somehow (`net_conv`). Together, these individual steps allow us to reassemble TCP streams much faster (`net_reassemble`).
+Considering Wireshark and tshark as the gold standard for everything related to the analysis of network traffic, `net_*` provides wrappers around these tools to enable TCP reassembly of all TCP streams in a PCAP file **without** re-reading the entire file over and over again. The idea is simple. Tshark allows you to determine session IDs for each packet/frame in captured network traffic (`net_stats`). With this information, we can easily write packets to individual/stream-specific files depending on their session ID (`net_extract streams`). Moreover, it might also make sense to filter the packets with sessions in mind (`net_filter`). The actual reassembly is then done by tshark based on these individual and much smaller PCAP files that contain exactly one TCP stream each -- the output is somewhat odd, though, such that we need to convert these conversations somehow (`net_conv`). Together, these individual steps allow us to reassemble TCP streams much faster (`net_reassemble`).
 
 
 # Dependencies
@@ -41,7 +41,7 @@ and you should be good to go. That's it! ¯\\_(ツ)_/¯
 
 # Tools
 
-`net_*` consists out of a number of individual tools:
+`net_*` consists out of several individual tools:
 
 - `bin/net_conv ...`  
   Convert tshark conversation output into something useful.
@@ -56,13 +56,13 @@ and you should be good to go. That's it! ¯\\_(ツ)_/¯
 
 # Examples
 
-Let me briefly sketch the use of `net_*` based on a very simple, two-step example. For this, I have prepares a small script for downloading (and merging) sample captures from <https://wireshark.org>:
+Let me briefly sketch the use of `net_*` based on a very simple, two-step example. For this, I have prepared a small script for downloading (and merging) sample captures from <https://wireshark.org>:
 
 ```
 $ res/fetch_data.sh
 ```
 
-Subsequently, we try to first filter **out** all X11 traffic from a PCAP file and then reassemble all TCP session. If you have a look at what sort of data is fetched, you quickly notice that this showcase is not super-elaborated but merely a simple toy example.
+Subsequently, we try to first filter **out** all X11 traffic from a PCAP file and then reassemble all TCP sessions. If you look at what sort of data is fetched, you quickly notice that this showcase is not super-elaborated but merely a simple toy example.
 
 **Attention! The following is using GNU Parallel**
 
@@ -100,11 +100,11 @@ $ ls -1 "res/data/out-incl:;X11;/x11-ipp.pcap"
 
 # Troubleshooting
 
-I guess there are going to surface a couple problems with these tools sooner or later. One thing that I stumbled over is the following:
+I guess there are going to surface a couple of problems with these tools sooner or later. One thing that I stumbled over is the following:
 
 ## PCAP-ng
 
-A while ago wireshark's/tshark's default output is in `pcap-ng` format. `dpkt` (or the libpcap wrapper?) is not able to process these. Please make sure to operate in `pcap` format. If necessary please convert our pcap file using Wireshark's `editcap`:
+A while ago wireshark's/tshark's default output is in `pcap-ng` format. `dpkt` (or the libpcap wrapper?) cannot process these. Please make sure to operate in `pcap` format. If necessary please convert our pcap file using Wireshark's `editcap`:
 
 ```
 editcap "$old" "$new" -F pcap
